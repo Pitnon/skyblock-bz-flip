@@ -237,7 +237,7 @@ export default function App() {
         <header className="frosted-panel rounded-2xl p-6 md:p-8 shadow-2xl border border-white/5">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
-              <p className="text-cyan-300 text-xs uppercase tracking-[0.4em] mb-3">Skyblock Retardation</p>
+              <p className="text-cyan-300 text-xs uppercase tracking-[0.4em] mb-3">Skyblock Special "Intelligence"</p>
               <h1 className="text-4xl md:text-5xl font-semibold leading-tight">Skyblock Flips</h1>
               <p className="text-sm md:text-base text-slate-400 mt-3 max-w-2xl">
                 Real-time scraping of skyblock.bz flips with granular filtering, sorting, keyword blacklists, and slider-adjusted thresholds.
