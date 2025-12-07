@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# skyblock-bz-flip
-Skyblock baazar flipping assiantant 
-=======
 # Skyblock Flips Scraper
 
 Fullstack project that scrapes [https://skyblock.bz/flips](https://skyblock.bz/flips) and provides a React UI for filtering, sorting, and blacklisting Skyblock flips.
@@ -48,5 +44,3 @@ npm run dev
 The frontend reads from `VITE_API_URL` if set, otherwise assumes `http://localhost:3001/api/flips`.
 
 > Tip: if you change the backend port, remember to update `VITE_API_URL` (or the default inside `App.jsx`) so the frontend fetches from the correct origin.
-
-<<<<<<< HEAD
