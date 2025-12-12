@@ -8,25 +8,16 @@ function computeApiBase() {
   
   // Handle GitHub Codespaces
   if (hostname.endsWith('.app.github.dev')) {
-    // If we are on port 5173 (frontend), we want to reach port 3001 (backend)
-    // The format is usually <codespace-name>-<port>.app.github.dev
     const parts = hostname.split('-');
-    // The last part is the port (e.g. "5173.app.github.dev" or just "5173")
-    // But sometimes the format is complex. 
-    // Let's try to replace the port number in the URL if it exists, 
-    // or append -3001 if we are on the main domain.
-    
-    // Robust regex to find the port number at the end of the subdomain
+
+    // Regex to find the port number at the end of the subdomain
     const portRegex = /-5173(?=\.app\.github\.dev)/;
     if (portRegex.test(hostname)) {
         return `https://${hostname.replace(portRegex, '-3001')}/api/flips`;
     }
     
-    // Fallback: if we can't find -5173, maybe we are on a different port or format.
-    // Let's try to construct it from the base.
-    // Example: psychic-space-waddle-q5gpjg5v9qpfxq7x-5173.app.github.dev
-    // We want: psychic-space-waddle-q5gpjg5v9qpfxq7x-3001.app.github.dev
-    return `https://${hostname.replace(/-\d+\.app\.github\.dev$/, '-3001.app.github.dev')}/api/flips`;
+    // if we can't find -5173, maybe we are on a different port or format.
+    return `https://${hostname.replace(/-\d+\.app\.github\.dev$/, '-3001.app.github.dev')}/api/flips`; //made to work on codespaces cuz I dont have a server to run on 
   }
 
   if (import.meta.env.DEV) {

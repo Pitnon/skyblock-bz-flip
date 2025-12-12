@@ -108,7 +108,7 @@ body {
   transform: translateY(-50%);
   width: 100%;
   appearance: none;
-  background: transparent; /* Important: let wrapper bg show through */
+  background: transparent; /* Let wrapper bg show through */
   pointer-events: none; /* Let clicks pass through to element below */
   margin: 0;
 }

@@ -57,10 +57,10 @@ async function getBazaarData(taxRate = 1.25) {
       };
 
       // buyPrice (High Price / Sell Offer) - calculated from top 1 sell offer (which are in buy_summary)
-      const buyPrice = getMeanPrice(buy_summary, 1);
+      const buyPrice = getMeanPrice(buy_summary, 1); // same as comment below but for buy
       
       // sellPrice (Low Price / Buy Order) - calculated from top 1 buy order (which are in sell_summary)
-      const sellPrice = getMeanPrice(sell_summary, 1);
+      const sellPrice = getMeanPrice(sell_summary, 1); // you can change the amount of orders that you want to be averaged to get the "sell price"
       
       if (buyPrice <= 0 || sellPrice <= 0) return;
 
@@ -76,7 +76,7 @@ async function getBazaarData(taxRate = 1.25) {
       const instabuyHourly = Math.round(quick_status.buyMovingWeek / 168);
       const instasellHourly = Math.round(quick_status.sellMovingWeek / 168);
       
-      // User requested: coins per hour = lower of instabuy/instasell * margin
+      // Coins per hour = lower of instabuy/instasell * margin
       const coinsPerHour = margin * Math.min(instabuyHourly, instasellHourly);
 
       // Filter out low volume or negative margin
