@@ -94,38 +94,52 @@ body {
 }
 
 .range-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  position: relative;
+  height: 1.5rem;
+  margin-top: 1rem;
+  border-radius: 999px;
+  /* Background will be set inline for the active range */
+  background: rgba(255, 255, 255, 0.06); 
 }
 
 .range-track {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 100%;
   appearance: none;
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(56, 189, 248, 0.8), rgba(59, 130, 246, 0.9));
-  outline: none;
+  background: transparent; /* Important: let wrapper bg show through */
+  pointer-events: none; /* Let clicks pass through to element below */
+  margin: 0;
 }
 
+/* Webkit Thumb */
 .range-track::-webkit-slider-thumb {
   appearance: none;
+  pointer-events: auto; /* Re-enable clicks on thumb */
   width: 18px;
   height: 18px;
   border-radius: 50%;
   background: #f8fafc;
   border: 3px solid #38bdf8;
-  box-shadow: 0 6px 18px rgba(56, 189, 248, 0.45);
-  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+  position: relative;
+  z-index: 10;
 }
 
+/* Firefox Thumb */
 .range-track::-moz-range-thumb {
+  pointer-events: auto;
   width: 18px;
   height: 18px;
   border-radius: 50%;
   background: #f8fafc;
   border: 3px solid #38bdf8;
-  box-shadow: 0 6px 18px rgba(56, 189, 248, 0.45);
-  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+  position: relative;
+  z-index: 10;
 }
 
 .flip-card {

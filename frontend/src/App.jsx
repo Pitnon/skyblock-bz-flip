@@ -67,6 +67,25 @@ function numberOrNull(n) {
   return n == null ? '—' : n.toLocaleString('en-US')
 }
 
+function parseShorthandNumber(input) {
+  if (input == null) return null
+  if (typeof input === 'number') return input
+  const s = String(input).trim().toLowerCase().replace(/,/g, '')
+  if (s === '') return null
+  const match = s.match(/^([\d,.]*\d(?:\.\d+)?)\s*([kmb])?$/i)
+  if (!match) {
+    const n = Number(s)
+    return Number.isNaN(n) ? null : n
+  }
+  const num = parseFloat(match[1])
+  const suffix = match[2]
+  if (!suffix) return num
+  if (suffix === 'k') return num * 1e3
+  if (suffix === 'm') return num * 1e6
+  if (suffix === 'b') return num * 1e9
+  return num
+}
+
 const STORAGE_KEY = 'skyblock_flips_prefs'
 
 function loadPrefs() {
@@ -102,15 +121,15 @@ export default function App() {
 
   useEffect(() => {
     fetchData()
-    const interval = setInterval(() => fetchData(true), 30000)
+    const interval = setInterval(() => fetchData(true), 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [tax])
 
   async function fetchData(silent = false) {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const res = await fetch(API)
+      const res = await fetch(`${API}?tax=${tax}`)
       const j = await res.json()
       if (!j.success) throw new Error(j.error || 'Failed to load flips')
       setItems(j.data || [])
@@ -169,46 +188,21 @@ export default function App() {
     }
 
     return items.map(item => {
-        // Recalculate margin and CPH based on user tax
-        // Tax is applied on the Sell Order (which is at the 'Buy Price' value in this data)
-        // Wait, let's be careful.
-        // Data: Buy Price (High), Sell Price (Low).
-        // You Buy at Sell Price (Low). You Sell at Buy Price (High).
-        // Tax is on the Sale (High Price).
-        // Margin = (HighPrice * (1 - tax/100)) - LowPrice
-        
-        const highPrice = item.buy || 0;
-        const lowPrice = item.sell || 0;
-        const taxMultiplier = 1 - (tax / 100);
-        
-        const newMargin = (highPrice * taxMultiplier) - lowPrice;
-        
-        // CPH calculation: Margin * Volume
-        // Volume is limited by the slower side of the trade (min of instabuy/instasell)
-        const volume = Math.min(item.instabuy || 0, item.instasell || 0);
-        const newCPH = newMargin * volume;
-        
-        return {
-            ...item,
-            margin: newMargin,
-            coinsPerHour: newCPH
-        };
+        // Backend now handles tax calculation, so we just use the values provided
+        return item;
     }).filter((item) => {
-      const haystack = `${item.title} ${item.raw || ''}`.toLowerCase()
-      if (blacklistTokens.some((kw) => haystack.includes(kw))) return false
-
-      for (const cfg of filterConfig) {
-        if (
-          (filters[cfg.minKey] !== '' || filters[cfg.maxKey] !== '') &&
-          !inRange(item[cfg.field], filters[cfg.minKey], filters[cfg.maxKey])
-        ) {
-          return false
-        }
+      if (blacklistTokens.some((token) => item.title.toLowerCase().includes(token))) {
+        return false
       }
-
+      if (!inRange(item.buy, filters.buyMin, filters.buyMax)) return false
+      if (!inRange(item.sell, filters.sellMin, filters.sellMax)) return false
+      if (!inRange(item.instabuy, filters.instaBuyMin, filters.instaBuyMax)) return false
+      if (!inRange(item.instasell, filters.instaSellMin, filters.instaSellMax)) return false
+      if (!inRange(item.margin, filters.marginMin, filters.marginMax)) return false
+      if (!inRange(item.coinsPerHour, filters.cphMin, filters.cphMax)) return false
       return true
     })
-  }, [items, filters, blacklistTokens, tax])
+  }, [items, filters, blacklistTokens])
 
   const sorted = useMemo(() => {
     const arr = [...filtered]
@@ -300,9 +294,9 @@ export default function App() {
 
           {showFilters && (
             <div className="p-6 pt-0 space-y-6 border-t border-white/5 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Sort Configuration</h3>
-                    <div className="flex flex-wrap gap-3 text-sm">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mt-8 mb-2">
+                  <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Sort Configuration</h3>
+                  <div className="flex flex-wrap gap-3 text-sm">
                     <label className="sr-only" htmlFor="sortBy">
                         Sort by
                     </label>
@@ -441,9 +435,9 @@ export default function App() {
 
 function RangeFilterCard({ config, filters, setFilter, setFilters, sliderBounds }) {
   const { label, minKey, maxKey, step = 1 } = config
-  const sliderMin = sliderBounds.min ?? 0
-  const computedMax = sliderBounds.max ?? sliderMin + step * 10
-  const sliderMax = computedMax <= sliderMin ? sliderMin + step * 10 : computedMax
+  // Use a fixed slider range 0 -> 100,000,000 (100m)
+  const sliderMin = 0
+  const sliderMax = 100_000_000
 
   const minValue = filters[minKey] === '' ? sliderMin : Number(filters[minKey])
   const maxValue = filters[maxKey] === '' ? sliderMax : Number(filters[maxKey])
@@ -475,6 +469,12 @@ function RangeFilterCard({ config, filters, setFilter, setFilters, sliderBounds 
     })
   }
 
+  // Visual background for the combined slider: show selected range between thumbs
+  const pct = (v) => ((v - sliderMin) / (sliderMax - sliderMin)) * 100
+  const leftPct = Math.min(100, Math.max(0, pct(minValue)))
+  const rightPct = Math.min(100, Math.max(0, pct(maxValue)))
+  const rangeBg = `linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) ${leftPct}%, rgba(6,182,212,0.25) ${leftPct}%, rgba(6,182,212,0.25) ${rightPct}%, rgba(255,255,255,0.06) ${rightPct}%, rgba(255,255,255,0.06) 100%)`
+
   return (
     <div className="filter-card">
       <div className="flex items-center justify-between mb-3">
@@ -486,18 +486,24 @@ function RangeFilterCard({ config, filters, setFilter, setFilters, sliderBounds 
           className="input"
           placeholder="min"
           value={filters[minKey]}
-          onChange={(e) => setFilter(minKey, e.target.value)}
+          onChange={(e) => {
+            const parsed = parseShorthandNumber(e.target.value)
+            setFilter(minKey, parsed == null ? '' : String(parsed))
+          }}
           inputMode="numeric"
         />
         <input
           className="input"
           placeholder="max"
           value={filters[maxKey]}
-          onChange={(e) => setFilter(maxKey, e.target.value)}
+          onChange={(e) => {
+            const parsed = parseShorthandNumber(e.target.value)
+            setFilter(maxKey, parsed == null ? '' : String(parsed))
+          }}
           inputMode="numeric"
         />
       </div>
-      <div className="range-wrapper mt-4">
+      <div className="range-wrapper mt-4" style={{ background: rangeBg }}>
         <input
           type="range"
           min={sliderMin}

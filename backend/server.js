@@ -1,6 +1,4 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
-const cheerio = require('cheerio');
 const NodeCache = require('node-cache');
 const cors = require('cors');
 
@@ -14,7 +12,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-const cache = new NodeCache({ stdTTL: 30 }); // cache 30 seconds to avoid spamming the target site
+const cache = new NodeCache({ stdTTL: 10 }); // cache 10 seconds to match Hypixel API refresh
 
 function parseNum(str) {
   if (!str) return null;
@@ -28,121 +26,96 @@ function parseNum(str) {
   return Number.isNaN(n) ? null : n;
 }
 
-async function scrapeFlips() {
-  const cached = cache.get('flips');
+const axios = require('axios');
+
+async function getBazaarData(taxRate = 1.25) {
+  const cacheKey = `flips_${taxRate}`;
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  const url = 'https://skyblock.bz/flips';
-  
-  let html = '';
-  let browser = null;
   try {
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process', 
-        '--disable-gpu'
-      ]
-    });
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    
-    // Go to URL and wait for network idle or selector
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    
-    try {
-      await page.waitForSelector('.card', { timeout: 10000 });
-    } catch (e) {
-      console.log('Warning: Timeout waiting for .card selector, proceeding with current content...');
+    const response = await axios.get('https://api.hypixel.net/v2/skyblock/bazaar');
+    if (!response.data.success) {
+      throw new Error('Hypixel API failed');
     }
+
+    const products = response.data.products;
+    const cards = [];
+
+    Object.values(products).forEach(product => {
+      const { quick_status, product_id, buy_summary, sell_summary } = product;
+      
+      // Helper to get mean of top N prices
+      const getMeanPrice = (summary, count = 5) => {
+        if (!summary || !Array.isArray(summary) || summary.length === 0) return 0;
+        const limit = Math.min(summary.length, count);
+        let sum = 0;
+        for (let i = 0; i < limit; i++) {
+          sum += summary[i].pricePerUnit;
+        }
+        return sum / limit;
+      };
+
+      // buyPrice (High Price / Sell Offer) - calculated from top 1 sell offer (which are in buy_summary)
+      const buyPrice = getMeanPrice(buy_summary, 1);
+      
+      // sellPrice (Low Price / Buy Order) - calculated from top 1 buy order (which are in sell_summary)
+      const sellPrice = getMeanPrice(sell_summary, 1);
+      
+      if (buyPrice <= 0 || sellPrice <= 0) return;
+
+      // Tax calculation
+      // We buy at sellPrice (Low), Sell at buyPrice (High)
+      // Margin = (High * tax) - Low
+      const taxMultiplier = 1 - (taxRate / 100);
+      const margin = (buyPrice * taxMultiplier) - sellPrice;
+      
+      // Volume estimation (items per week / 168 hours)
+      // instabuy = buyMovingWeek (items bought instantly)
+      // instasell = sellMovingWeek (items sold instantly)
+      const instabuyHourly = Math.round(quick_status.buyMovingWeek / 168);
+      const instasellHourly = Math.round(quick_status.sellMovingWeek / 168);
+      
+      // User requested: coins per hour = lower of instabuy/instasell * margin
+      const coinsPerHour = margin * Math.min(instabuyHourly, instasellHourly);
+
+      // Filter out low volume or negative margin
+      if (margin > 0 && Math.min(instabuyHourly, instasellHourly) > 10) {
+        cards.push({
+          id: product_id,
+          title: product_id.replace(/_/g, ' '),
+          buy: sellPrice, // Buy Order (Low)
+          sell: buyPrice, // Sell Offer (High)
+          instabuy: instabuyHourly, 
+          instasell: instasellHourly,
+          margin: margin,
+          coinsPerHour: coinsPerHour,
+          href: `https://skyblock.bz/product/${product_id}`,
+          img: `https://sky.coflnet.com/static/icon/${product_id}`, 
+          raw: JSON.stringify(quick_status)
+        });
+      }
+    });
+
+    // Sort by coins per hour
+    cards.sort((a, b) => b.coinsPerHour - a.coinsPerHour);
     
-    html = await page.content();
+    // Top 100
+    const topCards = cards.slice(0, 100);
+
+    cache.set(cacheKey, topCards);
+    return topCards;
+
   } catch (e) {
-    console.error('Scraping error:', e);
+    console.error('Bazaar API Error:', e);
     throw e;
-  } finally {
-    if (browser) await browser.close();
   }
-
-  const $ = cheerio.load(html);
-
-  // Relaxed selector to avoid svelte hash issues
-  if (!html || !$('.card').length) {
-    // Fallback: log but don't crash if we can't find cards immediately, 
-    // though we should probably throw if it's truly empty.
-    // Let's try to proceed if we find at least one .card
-    if (!$('.card').length) {
-       console.log('HTML dump:', html.slice(0, 500)); // Debug log
-       throw new Error('Unexpected flips markup. No .card elements found.');
-    }
-  }
-
-  const labelRegexCache = new Map();
-  function findMetric(cardHtml, label) {
-    if (!labelRegexCache.has(label)) {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      labelRegexCache.set(label, new RegExp(`<b>\\s*${escaped}\\s*<\\/b>:\\s*([^<]+)`, 'i'));
-    }
-    const regex = labelRegexCache.get(label);
-    const match = cardHtml.match(regex);
-    if (!match) return null;
-    const numericChunk = match[1].replace(/coins?|one-hour instabuys?|one-hour instasells?/gi, '');
-    const numericMatch = numericChunk.match(/[-\d.,kKmMbB]+/);
-    return numericMatch ? parseNum(numericMatch[0]) : null;
-  }
-
-  const cards = [];
-  $('.card').each((i, el) => {
-    const card = $(el);
-    if (!card.find('a').length) return; // skip spacer divs
-    const title = card.find('.item-name').text().trim() || card.find('h3, h2').first().text().trim();
-    const cardHtml = card.html() || '';
-    const text = card.text().replace(/\s+/g, ' ').trim();
-
-    const buy = findMetric(cardHtml, 'Buy Price');
-    const sell = findMetric(cardHtml, 'Sell Price');
-    const instabuy = findMetric(cardHtml, 'One-Hour Instabuys');
-    const instasell = findMetric(cardHtml, 'One-Hour Instasells');
-    const margin = findMetric(cardHtml, 'Margin');
-    const coinsPerHour = findMetric(cardHtml, 'Coins per Hour');
-
-    const hrefRaw = card.find('a').attr('href') || null;
-    const href = hrefRaw ? new URL(hrefRaw, 'https://skyblock.bz').toString() : null;
-    const imgRaw = card.find('img').attr('src') || null;
-    const img = imgRaw ? new URL(imgRaw, 'https://skyblock.bz').toString() : null;
-
-    cards.push({
-      id: cards.length,
-      title: title || 'Unknown Item',
-      buy,
-      sell,
-      instabuy,
-      instasell,
-      margin,
-      coinsPerHour,
-      href,
-      img,
-      raw: text,
-    });
-  });
-
-  if (!cards.length) {
-    throw new Error('No flip cards parsed. Inspect selectors.');
-  }
-
-  cache.set('flips', cards);
-  return cards;
 }
 
 app.get('/api/flips', async (req, res) => {
   try {
-    const data = await scrapeFlips();
+    const tax = req.query.tax ? parseFloat(req.query.tax) : 1.25;
+    const data = await getBazaarData(tax);
     res.json({ success: true, data });
   } catch (err) {
     console.error(err);
@@ -152,12 +125,12 @@ app.get('/api/flips', async (req, res) => {
 
 // Auto-scrape on startup
 (async () => {
-  console.log('Initial scrape starting...');
+  console.log('Initial fetch starting...');
   try {
-    await scrapeFlips();
-    console.log('Initial scrape successful!');
+    await getBazaarData();
+    console.log('Initial fetch successful!');
   } catch (err) {
-    console.error('Initial scrape failed:', err.message);
+    console.error('Initial fetch failed:', err.message);
   }
 })();
 
